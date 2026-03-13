@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+  <title>Clear Notes</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,800;1,400&family=Source+Serif+4:ital,wght@0,400;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --paper: #F7F1E8; --paper-dark: #EDE4D4; --paper-mid: #FDF8F0;
+      --ink: #1A1408; --ink-mid: #3D3520; --muted: #7A6E58; --faint: #A8A29E; --rule: #C8BEA8;
+      --accent: #C2410C; --accent-pale: #FAECE7;
+      --green: #3B6D11; --green-pale: #EAF3DE; --green-border: #97C459;
+    }
+    html, body { height: 100%; overflow: hidden; }
+    body { font-family: 'DM Sans', system-ui, sans-serif; background: var(--paper); color: var(--ink); }
+    .screen { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--paper); transition: opacity 0.3s ease, transform 0.3s ease; }
+    .screen.hidden { opacity: 0; pointer-events: none; transform: translateY(20px); }
+    .hidden { display: none !important; }
+    .status-bar { padding: 12px 20px 4px; display: flex; justify-content: space-between; font-size: 11px; font-weight: 500; color: var(--muted); flex-shrink: 0; }
+
+    /* AUTH */
+    #auth-screen { align-items: center; justify-content: center; padding: 2rem; }
+    .auth-logo { font-family: 'Playfair Display', serif; font-size: 36px; font-weight: 800; color: var(--ink); letter-spacing: -1px; margin-bottom: 6px; text-align: center; }
+    .auth-tagline { font-family: 'Source Serif 4', serif; font-style: italic; font-size: 15px; color: var(--muted); text-align: center; margin-bottom: 3rem; }
+    .bio-btn { width: 80px; height: 80px; border-radius: 50%; background: var(--paper-dark); border: 1.5px solid var(--rule); display: flex; align-items: center; justify-content: center; cursor: pointer; margin: 0 auto 1rem; transition: background 0.15s; }
+    .bio-btn:hover { background: #E0D8C8; }
+    .bio-btn svg { width: 36px; height: 36px; color: var(--ink-mid); }
+    .bio-label { font-size: 12px; color: var(--muted); text-align: center; margin-bottom: 2rem; }
+    .divider { display: flex; align-items: center; gap: 12px; width: 100%; max-width: 280px; margin-bottom: 1.5rem; }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--rule); }
+    .divider span { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.08em; }
+    .pin-dots { display: flex; gap: 14px; justify-content: center; margin-bottom: 2rem; }
+    .pin-dot { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--rule); background: transparent; transition: background 0.15s, border-color 0.15s; }
+    .pin-dot.filled { background: var(--ink); border-color: var(--ink); }
+    .pin-dot.error { background: var(--accent); border-color: var(--accent); }
+    .pin-grid { display: grid; grid-template-columns: repeat(3, 68px); gap: 10px; justify-content: center; }
+    .pin-key { width: 68px; height: 68px; border-radius: 50%; background: var(--paper-dark); border: 1px solid var(--rule); font-size: 22px; font-weight: 500; color: var(--ink); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.1s, transform 0.1s; user-select: none; }
+    .pin-key:active { background: #D8D0C0; transform: scale(0.94); }
+    .pin-key.ghost { background: transparent; border-color: transparent; pointer-events: none; }
+    .pin-key.del { font-size: 18px; color: var(--muted); background: transparent; border-color: transparent; }
+    .auth-msg { font-size: 12px; color: var(--accent); text-align: center; margin-top: 1rem; min-height: 18px; }
+    .setup-hint { font-family: 'Source Serif 4', serif; font-style: italic; font-size: 13px; color: var(--muted); text-align: center; margin-bottom: 1.5rem; }
+
+    /* APP */
+    #app-screen { overflow: hidden; }
+    .app-header { background: var(--paper); padding: 8px 16px 10px; border-bottom: 1px solid var(--rule); flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; }
+    .app-title { font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 700; color: var(--ink); letter-spacing: -0.3px; }
+    .app-sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+    .header-right { display: flex; align-items: center; gap: 14px; }
+    .bell-wrap { position: relative; cursor: pointer; }
+    .bell-wrap svg { width: 20px; height: 20px; color: var(--ink-mid); }
+    .bell-badge { position: absolute; top: -3px; right: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); border: 1.5px solid var(--paper); display: none; }
+    .bell-badge.show { display: block; }
+    .lock-btn { cursor: pointer; }
+    .lock-btn svg { width: 18px; height: 18px; color: var(--muted); }
+    .notes-scroll { flex: 1; overflow-y: auto; padding: 10px 12px 80px; -webkit-overflow-scrolling: touch; }
+    .loading-state { display: flex; align-items: center; justify-content: center; height: 200px; }
+    .spinner { width: 24px; height: 24px; border: 2px solid var(--rule); border-top-color: var(--muted); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 260px; }
+    .empty-icon { width: 44px; height: 44px; margin-bottom: 1rem; color: var(--rule); }
+    .empty-text { font-family: 'Source Serif 4', serif; font-style: italic; font-size: 15px; color: var(--faint); }
+    .empty-sub { font-size: 12px; color: var(--faint); margin-top: 5px; }
+
+    /* CARDS */
+    .note-card { border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; border: 1px solid rgba(0,0,0,0.06); animation: cardIn 0.25s ease; }
+    @keyframes cardIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .note-card[data-color="cream"]    { background: #FDF6E3; }
+    .note-card[data-color="blush"]    { background: #FAF0EC; }
+    .note-card[data-color="sage"]     { background: #EFF4EC; }
+    .note-card[data-color="sky"]      { background: #EDF3F8; }
+    .note-card[data-color="lavender"] { background: #F2EFFE; }
+    .note-card.done-card { opacity: 0.45; }
+    .note-card.overdue-highlight { border-color: rgba(194,65,12,0.3); }
+    .note-text { font-family: 'Source Serif 4', serif; font-size: 14px; color: var(--ink); line-height: 1.55; margin-bottom: 6px; }
+    .note-card.done-card .note-text { text-decoration: line-through; color: var(--muted); }
+    .note-reminder { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 4px; margin-bottom: 7px; }
+    .rdot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+    .note-actions { display: flex; gap: 6px; }
+    .act { font-size: 10px; font-weight: 500; padding: 3px 10px; border-radius: 99px; border: 0.5px solid; cursor: pointer; transition: opacity 0.15s; }
+    .act:active { opacity: 0.7; }
+    .act.done-a { color: var(--green); border-color: var(--green-border); background: var(--green-pale); }
+    .act.del-a  { color: #993C1D; border-color: #F0997B; background: var(--accent-pale); }
+    .act.undo-a { color: var(--muted); border-color: var(--rule); background: var(--paper-dark); }
+
+    /* FAB */
+    .fab { position: fixed; bottom: 24px; right: 20px; width: 52px; height: 52px; border-radius: 50%; background: var(--ink); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: transform 0.15s; z-index: 50; }
+    .fab:active { transform: scale(0.92); }
+    .fab svg { width: 24px; height: 24px; color: var(--paper); }
+
+    /* SHEET */
+    .sheet-overlay { position: fixed; inset: 0; background: rgba(26,20,8,0.4); z-index: 100; display: flex; align-items: flex-end; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
+    .sheet-overlay.open { opacity: 1; pointer-events: all; }
+    .sheet { background: var(--paper-mid); border-radius: 20px 20px 0 0; border-top: 1px solid var(--rule); padding: 16px 16px 32px; width: 100%; transform: translateY(100%); transition: transform 0.35s cubic-bezier(0.32,0.72,0,1); max-height: 90vh; overflow-y: auto; }
+    .sheet-overlay.open .sheet { transform: translateY(0); }
+    .sheet-handle { width: 36px; height: 3px; background: var(--rule); border-radius: 2px; margin: 0 auto 16px; }
+    .sheet-title { font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 700; color: var(--ink); margin-bottom: 14px; }
+    .sheet-label { font-size: 10px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
+    textarea.note-input { width: 100%; background: var(--paper-dark); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 14px; font-family: 'Source Serif 4', serif; font-size: 15px; color: var(--ink); line-height: 1.6; resize: none; display: block; margin-bottom: 14px; min-height: 90px; }
+    textarea.note-input:focus { outline: none; border-color: var(--muted); }
+    .datetime-row { display: flex; gap: 8px; margin-bottom: 14px; }
+    .dt-input { flex: 1; background: var(--paper-dark); border: 1px solid var(--rule); border-radius: 8px; padding: 9px 10px; font-size: 12px; color: var(--ink); }
+    .dt-input:focus { outline: none; border-color: var(--muted); }
+    .swatch-row { display: flex; gap: 10px; margin-bottom: 18px; }
+    .swatch { width: 28px; height: 28px; border-radius: 50%; cursor: pointer; border: 2.5px solid transparent; transition: border-color 0.15s, transform 0.15s; }
+    .swatch:active { transform: scale(0.88); }
+    .swatch.active { border-color: var(--ink); }
+    .swatch[data-color="cream"]    { background: #FDF6E3; }
+    .swatch[data-color="blush"]    { background: #FAF0EC; }
+    .swatch[data-color="sage"]     { background: #EFF4EC; }
+    .swatch[data-color="sky"]      { background: #EDF3F8; }
+    .swatch[data-color="lavender"] { background: #F2EFFE; }
+    .save-btn { width: 100%; background: var(--ink); color: var(--paper); border: none; border-radius: 12px; padding: 15px; font-size: 15px; font-weight: 500; cursor: pointer; transition: background 0.15s; }
+    .save-btn:disabled { opacity: 0.5; }
+
+    /* OVERDUE DRAWER */
+    .overdue-drawer { position: fixed; top: 0; left: 0; right: 0; background: var(--accent-pale); border-bottom: 1px solid #F0997B; z-index: 80; padding: 12px 16px; transform: translateY(-100%); transition: transform 0.3s ease; }
+    .overdue-drawer.open { transform: translateY(0); }
+    .overdue-title { font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; display: flex; justify-content: space-between; }
+    .overdue-item { font-family: 'Source Serif 4', serif; font-size: 13px; color: var(--ink-mid); padding: 4px 0; border-bottom: 0.5px solid rgba(194,65,12,0.15); }
+    .overdue-item:last-child { border-bottom: none; }
+
+    @media (min-width: 480px) {
+      body { display: flex; align-items: center; justify-content: center; background: var(--paper-dark); }
+      .screen { position: relative; width: 390px; height: 844px; border-radius: 40px; border: 6px solid var(--ink); overflow: hidden; box-shadow: 0 32px 80px rgba(0,0,0,0.25); }
+      .fab { position: absolute; }
+      .sheet-overlay { position: absolute; border-radius: 34px; overflow: hidden; }
+      .overdue-drawer { position: absolute; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="screen" id="auth-screen">
+  <div class="status-bar"><span id="auth-time">9:41</span><span>● ● ●</span></div>
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem;">
+    <div class="auth-logo">Clear Notes</div>
+    <div class="auth-tagline">Your notes, quietly kept.</div>
+    <div id="bio-section">
+      <div class="bio-btn" onclick="tryBiometric()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/>
+          <path d="M8 12c0-2.21 1.79-4 4-4s4 1.79 4 4"/>
+          <circle cx="9" cy="10" r="0.8" fill="currentColor"/>
+          <circle cx="15" cy="10" r="0.8" fill="currentColor"/>
+          <path d="M7 16.5c1.27 1.27 3.02 2 4.93 2s3.66-.73 4.93-2"/>
+        </svg>
+      </div>
+      <div class="bio-label" id="bio-label">Use Face ID / Fingerprint</div>
+      <div class="divider"><span>or enter PIN</span></div>
+    </div>
+    <div class="setup-hint hidden" id="setup-hint">Choose a 4-digit PIN to protect your notes</div>
+    <div class="setup-hint hidden" id="confirm-hint">Confirm your PIN</div>
+    <div class="pin-dots">
+      <div class="pin-dot" id="d0"></div><div class="pin-dot" id="d1"></div>
+      <div class="pin-dot" id="d2"></div><div class="pin-dot" id="d3"></div>
+    </div>
+    <div class="pin-grid">
+      <div class="pin-key" onclick="pinTap('1')">1</div><div class="pin-key" onclick="pinTap('2')">2</div><div class="pin-key" onclick="pinTap('3')">3</div>
+      <div class="pin-key" onclick="pinTap('4')">4</div><div class="pin-key" onclick="pinTap('5')">5</div><div class="pin-key" onclick="pinTap('6')">6</div>
+      <div class="pin-key" onclick="pinTap('7')">7</div><div class="pin-key" onclick="pinTap('8')">8</div><div class="pin-key" onclick="pinTap('9')">9</div>
+      <div class="pin-key ghost"></div><div class="pin-key" onclick="pinTap('0')">0</div><div class="pin-key del" onclick="pinDel()">⌫</div>
+    </div>
+    <div class="auth-msg" id="auth-msg"></div>
+  </div>
+</div>
+
+<div class="screen hidden" id="app-screen">
+  <div class="status-bar"><span id="app-time">9:41</span><span>● ● ●</span></div>
+  <div class="app-header">
+    <div>
+      <div class="app-title">Clear Notes</div>
+      <div class="app-sub" id="app-sub">Loading…</div>
+    </div>
+    <div class="header-right">
+      <div class="bell-wrap" onclick="toggleOverdue()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        <div class="bell-badge" id="bell-badge"></div>
+      </div>
+      <div class="lock-btn" onclick="lockApp()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+    </div>
+  </div>
+  <div class="overdue-drawer" id="overdue-drawer">
+    <div class="overdue-title"><span>Overdue reminders</span><span onclick="toggleOverdue()" style="cursor:pointer">×</span></div>
+    <div id="overdue-list"></div>
+  </div>
+  <div class="notes-scroll" id="notes-scroll">
+    <div class="loading-state" id="loading-state"><div class="spinner"></div></div>
+    <div class="empty-state hidden" id="empty-state">
+      <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      <div class="empty-text">Nothing here yet.</div>
+      <div class="empty-sub">Tap + to add your first note.</div>
+    </div>
+    <div id="notes-list"></div>
+  </div>
+  <button class="fab" onclick="openSheet()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  </button>
+</div>
+
+<div class="sheet-overlay" id="sheet-overlay" onclick="sheetBgClick(event)">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">New note</div>
+    <div class="sheet-label">What do you need to remember?</div>
+    <textarea class="note-input" id="note-input" placeholder="Write your note here…" rows="4"></textarea>
+    <div class="sheet-label">Remind me at (optional)</div>
+    <div class="datetime-row">
+      <input class="dt-input" type="date" id="date-input"/>
+      <input class="dt-input" type="time" id="time-input"/>
+    </div>
+    <div class="sheet-label">Card colour</div>
+    <div class="swatch-row">
+      <div class="swatch active" data-color="cream" onclick="selectColor(this)"></div>
+      <div class="swatch" data-color="blush" onclick="selectColor(this)"></div>
+      <div class="swatch" data-color="sage" onclick="selectColor(this)"></div>
+      <div class="swatch" data-color="sky" onclick="selectColor(this)"></div>
+      <div class="swatch" data-color="lavender" onclick="selectColor(this)"></div>
+    </div>
+    <button class="save-btn" id="save-btn" onclick="saveNote()">Save note</button>
+  </div>
+</div>
+
+<script>
+  const SUPA_URL = 'https://ljjwsfsdkkrhcdkvopuw.supabase.co';
+  const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxqandzZnNka2tyaGNka3ZvcHV3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MjE4MzksImV4cCI6MjA4ODk5NzgzOX0.X0eDyN7qr2DOUk4fi8tl0aEbnyvAtKUMpdabSiO-M9Q';
+  const PIN_KEY = 'cn_pin';
+  const BIO_KEY = 'cn_bio';
+  const db = supabase.createClient(SUPA_URL, SUPA_KEY);
+
+  let notes = [], pinBuffer = '', authMode = 'enter', setupPin = '', selectedColor = 'cream', overdueOpen = false;
+
+  function tick() {
+    const t = new Date(), s = t.getHours().toString().padStart(2,'0') + ':' + t.getMinutes().toString().padStart(2,'0');
+    document.getElementById('auth-time').textContent = s;
+    document.getElementById('app-time').textContent = s;
+  }
+  tick(); setInterval(tick, 10000);
+
+  function initAuth() {
+    const hasPin = !!localStorage.getItem(PIN_KEY);
+    if (!hasPin) {
+      authMode = 'setup';
+      document.getElementById('setup-hint').classList.remove('hidden');
+      document.getElementById('bio-section').classList.add('hidden');
+    } else {
+      authMode = 'enter';
+      if (!localStorage.getItem(BIO_KEY)) document.getElementById('bio-section').classList.add('hidden');
+      else tryBiometric();
+    }
+  }
+
+  async function tryBiometric() {
+    if (!window.PublicKeyCredential) { document.getElementById('bio-section').classList.add('hidden'); return; }
+    try {
+      const stored = localStorage.getItem(BIO_KEY);
+      if (!stored) { await registerBiometric(); return; }
+      const credId = Uint8Array.from(atob(stored), c => c.charCodeAt(0));
+      const result = await navigator.credentials.get({ publicKey: { challenge: crypto.getRandomValues(new Uint8Array(32)), allowCredentials: [{ type: 'public-key', id: credId }], userVerification: 'required', timeout: 60000 }});
+      if (result) unlockApp();
+    } catch(e) { document.getElementById('bio-label').textContent = 'Use PIN instead'; }
+  }
+
+  async function registerBiometric() {
+    if (!window.PublicKeyCredential) return;
+    try {
+      const cred = await navigator.credentials.create({ publicKey: { challenge: crypto.getRandomValues(new Uint8Array(32)), rp: { name: 'Clear Notes', id: location.hostname || 'localhost' }, user: { id: new Uint8Array(16), name: 'user@clearnotes', displayName: 'User' }, pubKeyCredParams: [{ alg: -7, type: 'public-key' }], authenticatorSelection: { userVerification: 'required', authenticatorAttachment: 'platform' }, timeout: 60000 }});
+      localStorage.setItem(BIO_KEY, btoa(String.fromCharCode(...new Uint8Array(cred.rawId))));
+      document.getElementById('bio-label').textContent = 'Biometric registered ✓';
+    } catch(e) { document.getElementById('bio-section').classList.add('hidden'); }
+  }
+
+  function pinTap(d) {
+    if (pinBuffer.length >= 4) return;
+    pinBuffer += d; updateDots();
+    if (pinBuffer.length === 4) setTimeout(processPin, 150);
+  }
+  function pinDel() { pinBuffer = pinBuffer.slice(0,-1); updateDots(); }
+  function updateDots(state) {
+    for (let i = 0; i < 4; i++) {
+      const el = document.getElementById('d'+i);
+      el.classList.remove('filled','error');
+      if (state === 'error') el.classList.add('error');
+      else if (i < pinBuffer.length) el.classList.add('filled');
+    }
+  }
+  function processPin() {
+    if (authMode === 'setup') {
+      setupPin = pinBuffer; pinBuffer = ''; authMode = 'confirm';
+      document.getElementById('setup-hint').classList.add('hidden');
+      document.getElementById('confirm-hint').classList.remove('hidden');
+      updateDots();
+    } else if (authMode === 'confirm') {
+      if (pinBuffer === setupPin) {
+        localStorage.setItem(PIN_KEY, btoa(pinBuffer)); pinBuffer = ''; updateDots();
+        document.getElementById('auth-msg').textContent = 'PIN set!';
+        setTimeout(async () => {
+          authMode = 'enter'; document.getElementById('confirm-hint').classList.add('hidden');
+          if (window.PublicKeyCredential) {
+            const avail = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(() => false);
+            if (avail) { document.getElementById('bio-section').classList.remove('hidden'); document.getElementById('bio-label').textContent = 'Set up Face ID / Fingerprint'; document.getElementById('auth-msg').textContent = ''; }
+            else unlockApp();
+          } else unlockApp();
+        }, 500);
+      } else {
+        document.getElementById('auth-msg').textContent = "PINs don't match. Try again.";
+        updateDots('error'); setTimeout(() => { pinBuffer = ''; updateDots(); document.getElementById('auth-msg').textContent = ''; }, 800);
+      }
+    } else {
+      if (pinBuffer === atob(localStorage.getItem(PIN_KEY) || '')) {
+        unlockApp();
+        if (window.PublicKeyCredential && !localStorage.getItem(BIO_KEY))
+          PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(a => { if (a) registerBiometric(); });
+      } else {
+        document.getElementById('auth-msg').textContent = 'Incorrect PIN. Try again.';
+        updateDots('error'); setTimeout(() => { pinBuffer = ''; updateDots(); document.getElementById('auth-msg').textContent = ''; }, 800);
+      }
+    }
+  }
+
+  function unlockApp() {
+    pinBuffer = ''; updateDots();
+    document.getElementById('auth-screen').classList.add('hidden');
+    document.getElementById('app-screen').classList.remove('hidden');
+    loadNotes();
+  }
+  function lockApp() {
+    document.getElementById('app-screen').classList.add('hidden');
+    document.getElementById('auth-screen').classList.remove('hidden');
+    pinBuffer = ''; updateDots(); document.getElementById('auth-msg').textContent = '';
+    if (localStorage.getItem(BIO_KEY)) { document.getElementById('bio-section').classList.remove('hidden'); setTimeout(tryBiometric, 400); }
+  }
+
+  async function loadNotes() {
+    document.getElementById('loading-state').classList.remove('hidden');
+    document.getElementById('notes-list').innerHTML = '';
+    document.getElementById('empty-state').classList.add('hidden');
+    const { data, error } = await db.from('notes').select('*').order('created_at', { ascending: false });
+    document.getElementById('loading-state').classList.add('hidden');
+    if (error) { document.getElementById('app-sub').textContent = 'Error loading'; return; }
+    notes = data || []; renderNotes();
+  }
+
+  async function saveNote() {
+    const text = document.getElementById('note-input').value.trim();
+    if (!text) { document.getElementById('note-input').focus(); return; }
+    const date = document.getElementById('date-input').value;
+    const time = document.getElementById('time-input').value;
+    const reminder = (date && time) ? new Date(date+'T'+time).toISOString() : (date ? new Date(date).toISOString() : null);
+    const btn = document.getElementById('save-btn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    const { data, error } = await db.from('notes').insert([{ id: Date.now().toString(), text, reminder, color: selectedColor, done: false }]).select().single();
+    btn.disabled = false; btn.textContent = 'Save note';
+    if (!error && data) { notes.unshift(data); renderNotes(); closeSheet(); }
+    else { btn.textContent = 'Error — try again'; setTimeout(() => btn.textContent = 'Save note', 2000); }
+  }
+
+  async function markDone(id) {
+    await db.from('notes').update({ done: true }).eq('id', id);
+    const n = notes.find(n => n.id === id); if (n) n.done = true; renderNotes();
+  }
+  async function undoNote(id) {
+    await db.from('notes').update({ done: false }).eq('id', id);
+    const n = notes.find(n => n.id === id); if (n) n.done = false; renderNotes();
+  }
+  async function deleteNote(id) {
+    await db.from('notes').delete().eq('id', id);
+    notes = notes.filter(n => n.id !== id); renderNotes();
+  }
+
+  function renderNotes() {
+    const list = document.getElementById('notes-list');
+    const active = notes.filter(n => !n.done), done = notes.filter(n => n.done);
+    const sorted = [...active, ...done];
+    list.innerHTML = '';
+    document.getElementById('empty-state').classList.toggle('hidden', sorted.length > 0);
+    const now = Date.now(); let overdueCount = 0; const overdueItems = [];
+    sorted.forEach(note => {
+      const isOverdue = note.reminder && !note.done && new Date(note.reminder).getTime() < now;
+      if (isOverdue) { overdueCount++; overdueItems.push(note); }
+      const card = document.createElement('div');
+      card.className = 'note-card' + (note.done ? ' done-card' : '') + (isOverdue ? ' overdue-highlight' : '');
+      card.dataset.color = note.color || 'cream';
+      const rem = note.reminder ? `<div class="note-reminder"><span class="rdot"></span>${fmtDate(new Date(note.reminder))}</div>` : '';
+      const acts = note.done
+        ? `<div class="note-actions"><span class="act undo-a" onclick="undoNote('${note.id}')">Undo</span><span class="act del-a" onclick="deleteNote('${note.id}')">Delete</span></div>`
+        : `<div class="note-actions"><span class="act done-a" onclick="markDone('${note.id}')">Mark done</span><span class="act del-a" onclick="deleteNote('${note.id}')">Delete</span></div>`;
+      card.innerHTML = `<div class="note-text">${esc(note.text)}</div>${rem}${acts}`;
+      list.appendChild(card);
+    });
+    document.getElementById('bell-badge').classList.toggle('show', overdueCount > 0);
+    document.getElementById('overdue-list').innerHTML = overdueItems.map(n => `<div class="overdue-item">${esc(n.text)} <span style="color:var(--muted);font-size:10px">— ${fmtDate(new Date(n.reminder))}</span></div>`).join('');
+    document.getElementById('app-sub').textContent = active.length + ' note' + (active.length !== 1 ? 's' : '');
+  }
+
+  function openSheet() {
+    document.getElementById('note-input').value = '';
+    document.getElementById('date-input').value = '';
+    document.getElementById('time-input').value = '';
+    selectedColor = 'cream';
+    document.querySelectorAll('.swatch').forEach(s => s.classList.toggle('active', s.dataset.color === 'cream'));
+    document.getElementById('sheet-overlay').classList.add('open');
+    setTimeout(() => document.getElementById('note-input').focus(), 400);
+  }
+  function closeSheet() { document.getElementById('sheet-overlay').classList.remove('open'); }
+  function sheetBgClick(e) { if (e.target === document.getElementById('sheet-overlay')) closeSheet(); }
+  function selectColor(el) { selectedColor = el.dataset.color; document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active')); el.classList.add('active'); }
+
+  function toggleOverdue() {
+    overdueOpen = !overdueOpen;
+    document.getElementById('overdue-drawer').classList.toggle('open', overdueOpen);
+    document.getElementById('notes-scroll').style.paddingTop = overdueOpen ? (document.getElementById('overdue-drawer').offsetHeight + 4) + 'px' : '0';
+  }
+
+  function fmtDate(d) {
+    const now = new Date(), today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(today); tomorrow.setDate(today.getDate()+1);
+    const dDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const time = d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+    if (dDay.getTime() === today.getTime()) return 'Today ' + time;
+    if (dDay.getTime() === tomorrow.getTime()) return 'Tomorrow ' + time;
+    return d.toLocaleDateString([], { day:'numeric', month:'short' }) + ' ' + time;
+  }
+  function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  initAuth();
+</script>
+</body>
+</html>
